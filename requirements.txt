@@ -1,0 +1,5 @@
+pandas
+requests
+selenium
+psycopg2-binary
+Flask-Session==0.5.0

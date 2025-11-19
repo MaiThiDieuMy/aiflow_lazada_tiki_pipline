@@ -1,0 +1,127 @@
+# File: docker-compose.yaml (ĐÃ SỬA CHỮA VÀ HOÀN THIỆN)
+version: '3.8'
+
+x-airflow-common:
+  &airflow-common
+  build: .
+  image: lazada_tiki_airflow:latest
+  environment:
+    # Định nghĩa khối môi trường chung
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+    AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'  # Sửa lỗi 57 connections
+    AIRFLOW__WEBSERVER__ALLOW_NON_EXPOSED_CONNECTIONS: 'True' # FIX LỖI SLACK/HTTP
+
+    PYTHONPATH: "/opt/airflow/dags:/opt/airflow/plugins:/opt/airflow/config:/opt/airflow/includes"
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./config:/opt/airflow/config
+    - ./includes:/opt/airflow/includes
+  user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+
+services:
+  # 1. "Não" của Airflow (Lưu trạng thái)
+  postgres:
+    image: postgres:13
+    container_name: airflow-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}"]
+      interval: 5s
+      retries: 5
+
+  # 2. "Kho Dữ Liệu" của BẠN (Lưu sản phẩm)
+  postgres-data:
+    image: postgres:13
+    container_name: data-warehouse 
+    environment:
+      POSTGRES_USER: ${DATA_USER}
+      POSTGRES_PASSWORD: ${DATA_PASSWORD}
+      POSTGRES_DB: ${DATA_DB}
+    volumes:
+      - postgres-data-volume:/var/lib/postgresql/data
+    ports:
+      - "5433:5432" # Cho VSCode/Metabase kết nối
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${DATA_USER}"]
+      interval: 5s
+      retries: 5
+
+  # 3. "Bưu điện" (Gửi lệnh)
+  redis:
+    image: redis:latest
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+    ports:
+      - "6379:6379"
+
+  # 4. Giao diện Web (FIX LỖI INIT BẰNG CÁCH TÍCH HỢP INIT VÀO WEBSERVER)
+  airflow-webserver:
+    <<: *airflow-common
+    # Đây là lệnh khởi tạo DB VÀ khởi động Webserver.
+    # Lệnh 'db migrate' sẽ chờ cho DB sẵn sàng.
+    command: bash -c "sleep 10 && airflow db migrate && airflow users create --username airflow --password airflow --firstname Admin --lastname User --role Admin --email admin@example.com || true; exec airflow webserver"
+    container_name: airflow-webserver
+    ports:
+      - "8080:8080" # Airflow UI
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      - postgres
+      - redis
+
+  # 5. "Quản đốc" (Lên lịch)
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    container_name: airflow-scheduler
+    healthcheck:
+      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob", "--local"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # 6. "Công nhân" (Chạy code)
+  airflow-worker:
+    <<: *airflow-common
+    command: celery worker
+    container_name: airflow-worker
+    healthcheck:
+      test: ["CMD", "airflow", "celery", "check"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # 7. Dashboard (Metabase)
+  metabase:
+    image: metabase/metabase:latest
+    ports:
+      - "3000:3000" # Metabase UI
+    depends_on:
+      postgres-data: 
+        condition: service_healthy
+
+volumes:
+  postgres-db-volume:
+  postgres-data-volume:
