@@ -1,0 +1,49 @@
+# ==============================================================================
+# Python Dependencies - Requirements for Airflow ETL Pipeline
+# ==============================================================================
+#
+# Install: pip install -r requirements.txt
+# Note: Các packages này sẽ được install trong Dockerfile
+#
+# ==============================================================================
+
+# ==============================================================================
+# DATA PROCESSING
+# ==============================================================================
+# pandas: Data manipulation và analysis
+#   - Dùng cho data cleaning và transformation
+#   - DataFrame operations
+pandas
+
+# ==============================================================================
+# HTTP CLIENT & WEB SCRAPING
+# ==============================================================================
+# requests: HTTP library cho Python
+#   - Gọi Tiki API để lấy dữ liệu sản phẩm (JSON)
+#   - Lấy product reviews từ Lazada (parse HTML)
+#   - Handle retry và timeout
+requests
+
+# selenium: Browser automation tool
+#   - Crawl Lazada với headless Chrome (JavaScript rendering)
+#   - Navigate pages, scroll, click elements
+#   - Extract dynamic content
+selenium
+
+# ==============================================================================
+# DATABASE CONNECTIVITY
+# ==============================================================================
+# psycopg2-binary: PostgreSQL adapter cho Python
+#   - Kết nối với data warehouse (postgres-data)
+#   - Execute SQL queries (INSERT, UPDATE, SELECT)
+#   - Transaction management
+#   - Binary version: Không cần compile, dễ install
+psycopg2-binary
+
+# ==============================================================================
+# NOTES
+# ==============================================================================
+# 1. Airflow providers (postgres, slack) đã có sẵn trong base image
+# 2. Chrome + ChromeDriver được cài trong Dockerfile (system packages)
+# 3. Để update versions: pip list --outdated
+# 4. Để freeze exact versions: pip freeze > requirements-lock.txt

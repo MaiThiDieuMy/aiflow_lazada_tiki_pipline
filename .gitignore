@@ -1,12 +1,55 @@
-# Logs
-logs/
+# ==============================================================================
+# .gitignore - Airflow ETL Pipeline Project
+# ==============================================================================
 
-# Python cache
-__pycache__/
+# ==============================================================================
+# SENSITIVE DATA - NEVER COMMIT!
+# ==============================================================================
+.env                    # Environment variables chứa passwords
+connections.json        # Airflow connections export
+variables.json          # Airflow variables export
+
+# ==============================================================================
+# AIRFLOW GENERATED FILES
+# ==============================================================================
+logs/                   # Task logs (có thể rất lớn)
+*.log
+airflow.db              # SQLite metadata DB (nếu dùng local)
+airflow.cfg             # Auto-generated config
+webserver_config.py     # Auto-generated webserver config
+
+# ==============================================================================
+# PYTHON
+# ==============================================================================
+__pycache__/            # Python cache
+*.py[cod]
 *.pyc
+venv/                   # Virtual environment
+env/
+.venv/
 
-# Environment variables
-.env
+# ==============================================================================
+# DOCKER
+# ==============================================================================
+postgres-db-volume/     # Docker volumes (nếu tạo local)
+postgres-data-volume/
 
-# Docker/Airflow temporary files (if any)
-.dockerignore
+# ==============================================================================
+# IDE / EDITORS
+# ==============================================================================
+.vscode/                # VSCode settings
+.idea/                  # PyCharm settings
+
+# ==============================================================================
+# OS FILES
+# ==============================================================================
+.DS_Store              # macOS
+Thumbs.db              # Windows
+Desktop.ini            # Windows
+
+# ==============================================================================
+# TEMPORARY FILES
+# ==============================================================================
+*.tmp
+*.temp
+*.bak

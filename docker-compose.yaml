@@ -1,0 +1,300 @@
+# ==============================================================================
+# Docker Compose Configuration - Airflow ETL Pipeline
+# ==============================================================================
+# 
+# Project: Tiki & Lazada Product Data Pipeline
+# Description: Multi-container setup cho Airflow với Postgres và Redis
+# 
+# Architecture:
+#   - 2 PostgreSQL instances:
+#     1. airflow-postgres: Metadata DB cho Airflow (lưu DAG states, logs)
+#     2. data-warehouse: Data warehouse cho sản phẩm Tiki/Lazada
+#   - Redis: Message broker cho Celery executor
+#   - Airflow components: Webserver, Scheduler, Worker
+#   - Metabase: BI tool để visualize data
+# 
+# Usage:
+#   docker-compose up -d          # Start all services
+#   docker-compose down           # Stop all services
+#   docker-compose logs -f        # View logs
+#   docker-compose ps             # Check status
+# 
+# Author: Data Team
+# Last Updated: 2025-01-20
+# ==============================================================================
+
+version: '3.8'
+
+# ==============================================================================
+# SHARED CONFIGURATION - Template chung cho các Airflow services
+# ==============================================================================
+x-airflow-common:
+  &airflow-common
+  # Build from local Dockerfile (includes Chrome + ChromeDriver for Selenium)
+  build: .
+  image: lazada_tiki_airflow:latest
+  
+  # ============================================================================
+  # Environment Variables - Cấu hình Airflow
+  # ============================================================================
+  environment:
+    &airflow-common-env
+    # Executor: CeleryExecutor cho distributed task execution
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    
+    # Database Connection: Kết nối tới Airflow metadata DB
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+    
+    # Celery Backend: Lưu task results vào DB
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+    
+    # Celery Broker: Redis làm message queue
+    AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    
+    # Security: Fernet key cho encryption (empty = auto-generate)
+    AIRFLOW__CORE__FERNET_KEY: ''
+    
+    # Examples: Tắt DAG examples mặc định (tránh 57 connections không cần thiết)
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    
+    # Connections: Cho phép Slack/HTTP connections không exposed
+    AIRFLOW__WEBSERVER__ALLOW_NON_EXPOSED_CONNECTIONS: 'True'
+    
+    # Python Path: Thêm custom modules vào PYTHONPATH
+    # Cho phép import trực tiếp: from etl_tiki import run_tiki_etl
+    PYTHONPATH: "/opt/airflow/dags:/opt/airflow/plugins:/opt/airflow/config:/opt/airflow/includes"
+  
+  # ============================================================================
+  # Volume Mounts - Mount local directories vào container
+  # ============================================================================
+  volumes:
+    # DAGs folder: Airflow auto-detect DAGs từ đây
+    - ./dags:/opt/airflow/dags
+    
+    # Logs folder: Task logs được lưu ở đây
+    - ./logs:/opt/airflow/logs
+    
+    # Plugins folder: Custom operators/hooks
+    - ./plugins:/opt/airflow/plugins
+    
+    # Config folder: Analysis queries và guides
+    - ./config:/opt/airflow/config
+    
+    # Includes folder: ETL modules (etl_tiki.py, etl_lazada.py)
+    - ./includes:/opt/airflow/includes
+  
+  # User permissions: Chạy với UID/GID của host user
+  user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
+  
+  # Dependencies: Đợi Postgres và Redis healthy trước khi start
+  depends_on:
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+
+# ==============================================================================
+# SERVICES DEFINITION
+# ==============================================================================
+services:
+  
+  # ============================================================================
+  # 1. AIRFLOW METADATA DATABASE
+  # ============================================================================
+  # PostgreSQL instance để lưu Airflow metadata:
+  #   - DAG runs, task instances
+  #   - Connection configs
+  #   - User accounts
+  #   - Logs và states
+  postgres:
+    image: postgres:13
+    container_name: airflow-postgres
+    
+    # Environment variables từ .env file
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    
+    # Persistent volume: Data được lưu ngay cả khi container bị xóa
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    
+    # Health check: Đảm bảo DB sẵn sàng trước khi start dependent services
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}"]
+      interval: 5s
+      retries: 5
+
+  # ============================================================================
+  # 2. DATA WAREHOUSE DATABASE
+  # ============================================================================
+  # PostgreSQL instance riêng để lưu dữ liệu business:
+  #   - all_products: Snapshot sản phẩm hiện tại
+  #   - price_history: Lịch sử giá theo ngày
+  #   - sale_periods: Định nghĩa các mùa sale
+  postgres-data:
+    image: postgres:13
+    container_name: data-warehouse
+    
+    environment:
+      POSTGRES_USER: ${DATA_USER}
+      POSTGRES_PASSWORD: ${DATA_PASSWORD}
+      POSTGRES_DB: ${DATA_DB}
+    
+    volumes:
+      - postgres-data-volume:/var/lib/postgresql/data
+    
+    # Port mapping: Expose 5432 -> 5433 để connect từ host
+    # Sử dụng cho: VSCode, DBeaver, Metabase, pgAdmin
+    ports:
+      - "5433:5432"
+    
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${DATA_USER}"]
+      interval: 5s
+      retries: 5
+
+  # ============================================================================
+  # 3. REDIS - MESSAGE BROKER
+  # ============================================================================
+  # Redis làm message queue cho Celery:
+  #   - Scheduler gửi tasks vào queue
+  #   - Workers lấy tasks từ queue để execute
+  #   - Scalable: Có thể thêm nhiều workers
+  redis:
+    image: redis:latest
+    container_name: airflow-redis
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+    
+    # Port mapping: Expose Redis port (optional)
+    ports:
+      - "6379:6379"
+
+  # ============================================================================
+  # 4. AIRFLOW WEBSERVER - UI
+  # ============================================================================
+  # Web interface cho Airflow:
+  #   - View DAGs, task logs
+  #   - Trigger runs manually
+  #   - Manage connections
+  #   - Monitor task status
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow-webserver
+    
+    # Custom command: Init DB + Create admin user + Start webserver
+    # Note: 'db migrate' tự động chạy migrations nếu schema thay đổi
+    # '|| true' để ignore error nếu user đã tồn tại
+    command: >
+      bash -c "
+        sleep 10 &&
+        airflow db migrate &&
+        airflow users create 
+          --username airflow 
+          --password airflow 
+          --firstname Admin 
+          --lastname User 
+          --role Admin 
+          --email admin@example.com || true;
+        exec airflow webserver
+      "
+    
+    # Port mapping: Airflow UI accessible tại http://localhost:8080
+    # Login: airflow / airflow
+    ports:
+      - "8080:8080"
+    
+    # Health check: Verify webserver đang chạy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    
+    depends_on:
+      - postgres
+      - redis
+
+  # ============================================================================
+  # 5. AIRFLOW SCHEDULER - ORCHESTRATOR
+  # ============================================================================
+  # Scheduler component:
+  #   - Parse DAG files
+  #   - Schedule tasks theo intervals
+  #   - Gửi tasks vào Celery queue
+  #   - Giám sát task dependencies
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: scheduler
+    
+    # Health check: Verify scheduler process đang chạy
+    healthcheck:
+      test: 
+        - "CMD"
+        - "airflow"
+        - "jobs"
+        - "check"
+        - "--job-type"
+        - "SchedulerJob"
+        - "--local"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ============================================================================
+  # 6. AIRFLOW WORKER - TASK EXECUTOR
+  # ============================================================================
+  # Celery worker:
+  #   - Lấy tasks từ Redis queue
+  #   - Execute Python code (ETL logic)
+  #   - Có thể scale horizontal (thêm nhiều workers)
+  #   - Chứa Chrome + ChromeDriver cho Selenium crawling
+  airflow-worker:
+    <<: *airflow-common
+    container_name: airflow-worker
+    command: celery worker
+    
+    # Health check: Verify worker đang active
+    healthcheck:
+      test: ["CMD", "airflow", "celery", "check"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ============================================================================
+  # 7. METABASE - BUSINESS INTELLIGENCE
+  # ============================================================================
+  # BI tool để visualize data từ data-warehouse:
+  #   - Connect tới postgres-data:5432
+  #   - Tạo dashboard và reports
+  #   - Query builder UI-friendly
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase-analytics
+    
+    # Port mapping: Metabase UI tại http://localhost:3000
+    ports:
+      - "3000:3000"
+    
+    # Đợi data warehouse ready trước khi start
+    depends_on:
+      postgres-data: 
+        condition: service_healthy
+
+# ==============================================================================
+# NAMED VOLUMES - Persistent storage
+# ==============================================================================
+# Docker-managed volumes cho persistent data
+# Data sẽ được giữ ngay cả khi containers bị xóa
+volumes:
+  # Airflow metadata (DAG runs, task states, logs)
+  postgres-db-volume:
+  
+  # Business data (products, price history, sale periods)
+  postgres-data-volume:
