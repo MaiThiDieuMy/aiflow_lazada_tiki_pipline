@@ -97,7 +97,7 @@ cd airflow-project1
 Copy và chỉnh sửa `.env`:
 
 ```bash
-cp .env.example .env
+cp .env
 # Sửa passwords trong .env (nếu cần)
 ```
 
@@ -342,11 +342,6 @@ docker-compose up -d
 
 MIT License - xem file LICENSE để biết thêm chi tiết.
 
-## 👥 Authors
 
-- Data Team
 
-## 📞 Support
-
-Nếu gặp vấn đề, mở issue trên GitHub hoặc liên hệ team.
 
