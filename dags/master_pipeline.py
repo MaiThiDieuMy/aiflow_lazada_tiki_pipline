@@ -307,8 +307,27 @@ def master_product_pipeline():
 
     @task(task_id="send_success_notification")
     def send_success_alert(load_summary: Dict, history_added: int):
-        # ... (Code gửi Slack giữ nguyên) ...
-        pass
+        from airflow.providers.slack.hooks.slack_webhook import SlackWebhookHook
+        
+        tiki_count = load_summary.get('tiki_count', 0)
+        lazada_count = load_summary.get('lazada_count', 0)
+        total_processed = load_summary.get('processed_total', 0)
+        
+        message = (
+            f"✅ *Master Pipeline Completed Successfully!* \n"
+            f"• Tiki Products: {tiki_count}\n"
+            f"• Lazada Products: {lazada_count}\n"
+            f"• Total Upserted: {total_processed}\n"
+            f"• History Snapshots: {history_added}\n"
+            f"• Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        
+        try:
+            hook = SlackWebhookHook(slack_webhook_conn_id=SLACK_CONN_ID)
+            hook.send(text=message)
+            logging.info("Slack notification sent successfully.")
+        except Exception as e:
+            logging.error(f"Failed to send Slack notification: {e}")
 
     populate_sale_periods = PostgresOperator(
         task_id="populate_sale_periods",
