@@ -1,6 +1,6 @@
-# � Xây Dựng Data Pipeline Tự Động với Apache Airflow và Dashboard Phân Tích
+# Xây Dựng Apache Airflow Pipeline cho Thu Thập và Trực Quan Hóa Dữ Liệu E-Commerce: Hỗ Trợ Ra Quyết Định Kinh Doanh cho Nhà Bán Hàng và người mua
 
-## Cung Cấp Insight Thị Trường E-Commerce cho Nhà Bán Hàng Tiki & Lazada
+## Cung Cấp Insight Thị Trường E-Commerce cho Nhà Bán Hàng và người dùng Tiki & Lazada
 
 Pipeline tự động crawl, xử lý và trực quan hóa dữ liệu sản phẩm từ Tiki và Lazada sử dụng Apache Airflow, PostgreSQL và Metabase.
 
@@ -38,33 +38,7 @@ Pipeline này thực hiện các công việc sau:
 
 ## 🏗️ Kiến Trúc
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    AIRFLOW SCHEDULER                        │
-│                  (Điều phối workflow)                       │
-└────────────┬────────────────────────────────────────────────┘
-             │
-             ├─────────────┬─────────────┐
-             │             │             │
-    ┌────────▼──────┐ ┌───▼──────┐ ┌───▼──────┐
-    │  TIKI ETL     │ │LAZADA ETL│ │  LOADER  │
-    │   (API)       │ │(Selenium)│ │(Postgres)│
-    └────────┬──────┘ └───┬──────┘ └───┬──────┘
-             │             │             │
-             └─────────────┴─────────────┘
-                         │
-                ┌────────▼──────────┐
-                │ DATA WAREHOUSE    │
-                │  - all_products   │
-                │  - price_history  │
-                │  - sale_periods   │
-                └───────────────────┘
-                         │
-                ┌────────▼──────────┐
-                │    METABASE       │
-                │  (Visualization)  │
-                └───────────────────┘
-```
+![Pipeline](image/pipeline.png)
 
 ### Components
 
@@ -231,18 +205,6 @@ Lịch sử giá và sold count theo ngày (time-series).
 
 **Unique constraint**: `(name, source, crawl_date)`
 
-### Table: `sale_periods`
-
-Định nghĩa các mùa sale để phân tích.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | SERIAL | Primary key |
-| period_name | TEXT | Tên mùa sale (unique) |
-| start_date | DATE | Ngày bắt đầu |
-| end_date | DATE | Ngày kết thúc |
-| period_type | TEXT | Loại (Tet, BlackFriday, Normal, ...) |
-| description | TEXT | Mô tả |
 
 ## 📁 Cấu Trúc Project
 
@@ -338,14 +300,6 @@ docker-compose up -d
 4. Push to branch
 5. Create Pull Request
 
-## 📝 License
 
-MIT License - xem file LICENSE để biết thêm chi tiết.
-
-## 👥 Authors
-
-- Data Team
-
-## 📞 Support
-
-Nếu gặp vấn đề, mở issue trên GitHub hoặc liên hệ team.
+## Bổ sung
+docker run --rm --entrypoint bash apache/airflow:2.8.1 -c "airflow db init >/dev/null 2>&1 && cat /opt/airflow/airflow.cfg" > config/airflow.cfg
